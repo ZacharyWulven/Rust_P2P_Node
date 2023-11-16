@@ -1,8 +1,17 @@
-use libp2p::{identity, PeerId, Multiaddr};
-use libp2p::futures::StreamExt;
-use libp2p::swarm::{DummyBehaviour, Swarm, SwarmEvent};
+// use libp2p::{identity, PeerId, Multiaddr};
+// use libp2p::futures::StreamExt;
+// use libp2p::swarm::{DummyBehaviour, Swarm, SwarmEvent};
+// use libp2p::ping::{Ping, PingConfig};
+
+use libp2p::{
+    futures::StreamExt,
+    identity,
+    mdns::{Mdns, MdnsConfig, MdnsEvent},
+    swarm::{Swarm, SwarmEvent},
+    PeerId,
+};
 use std::error::Error;
-use libp2p::ping::{Ping, PingConfig};
+
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -16,15 +25,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let new_peer_id = PeerId::from(new_key.public());
     println!("New Peer ID is {:?}", new_peer_id);
 
-    // 创建一个空的网络行为，这个行为会关联到 swarm
-    // let behaviour = DummyBehaviour::default();
-
-    // 创建 ping 网络行为
-    let behaviour = Ping::new(PingConfig::new().with_keep_alive(true));
-
-
     // 创建一个传输
     let transport = libp2p::development_transport(new_key).await?;
+
+    // for create peer id: 创建一个空的网络行为，这个行为会关联到 swarm
+    // let behaviour = DummyBehaviour::default();
+
+    // for ping: 创建 ping 网络行为
+    // let behaviour = Ping::new(PingConfig::new().with_keep_alive(true));
+
+    // for mdns
+    let behaviour = Mdns::new(MdnsConfig::default()).await?;
+
     let mut swarm = Swarm::new(transport, behaviour, new_peer_id);
     // 让 swarm 监听 0.0.0.0 地址，端口是 0，
     // 0.0.0.0 表示本地机器上所有的 ipv4 的地址
@@ -35,12 +47,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     /*
         本地向远程地址发出连接的代码
         远程地址是命令行输入的参数中取出的
+        only for ping
+
      */
-    if let Some(remote_peer) = std::env::args().nth(1) {
-        let remote_peer_multiaddr: Multiaddr = remote_peer.parse()?;
-        swarm.dial(remote_peer_multiaddr)?;
-        println!("Dialed remote peer: {:?}", remote_peer);
-    }
+    // if let Some(remote_peer) = std::env::args().nth(1) {
+    //     let remote_peer_multiaddr: Multiaddr = remote_peer.parse()?;
+    //     swarm.dial(remote_peer_multiaddr)?;
+    //     println!("Dialed remote peer: {:?}", remote_peer);
+    // }
 
     /*
         持续的轮询来检查事件
@@ -57,9 +71,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
             /*
                 当本地节点发送 Ping 消息时，远程节点会返回 Pong，
                 接收到 Pong 消息，会打印下边代码
+                only for ping
+
              */
-            SwarmEvent::Behaviour(event) => {
-                println!("Event received from peer is {:?}", event);
+            // SwarmEvent::Behaviour(event) => {
+            //     println!("Event received from peer is {:?}", event);
+            // }
+            SwarmEvent::Behaviour(
+                // 这个事件，表示发现 peer 了
+                MdnsEvent::Discovered(peers)) => {
+                    for (peer, addr) in peers {
+                        println!("discovered peer={}, addr={}", peer, addr);
+                    }
+            }
+            SwarmEvent::Behaviour(
+                // 这个事件，表示过期了
+                MdnsEvent::Expired(expired)) => {
+                    for (peer, addr) in expired {
+                        println!("expired peer={}, addr={}", peer, addr);
+                    }
             }
             _ => {}
         }
