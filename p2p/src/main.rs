@@ -1,7 +1,8 @@
-use libp2p::{identity, PeerId};
+use libp2p::{identity, PeerId, Multiaddr};
 use libp2p::futures::StreamExt;
 use libp2p::swarm::{DummyBehaviour, Swarm, SwarmEvent};
 use std::error::Error;
+use libp2p::ping::{Ping, PingConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -16,7 +17,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("New Peer ID is {:?}", new_peer_id);
 
     // 创建一个空的网络行为，这个行为会关联到 swarm
-    let behaviour = DummyBehaviour::default();
+    // let behaviour = DummyBehaviour::default();
+
+    // 创建 ping 网络行为
+    let behaviour = Ping::new(PingConfig::new().with_keep_alive(true));
+
+
     // 创建一个传输
     let transport = libp2p::development_transport(new_key).await?;
     let mut swarm = Swarm::new(transport, behaviour, new_peer_id);
@@ -25,6 +31,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // 端口 0 指随机选一个端口
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
 
+    // 
+    /*
+        本地向远程地址发出连接的代码
+        远程地址是命令行输入的参数中取出的
+     */
+    if let Some(remote_peer) = std::env::args().nth(1) {
+        let remote_peer_multiaddr: Multiaddr = remote_peer.parse()?;
+        swarm.dial(remote_peer_multiaddr)?;
+        println!("Dialed remote peer: {:?}", remote_peer);
+    }
 
     /*
         持续的轮询来检查事件
@@ -37,6 +53,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
              */
             SwarmEvent::NewListenAddr { address, .. } => {
                 println!("Listening on Local Address {:?}", address);
+            }
+            /*
+                当本地节点发送 Ping 消息时，远程节点会返回 Pong，
+                接收到 Pong 消息，会打印下边代码
+             */
+            SwarmEvent::Behaviour(event) => {
+                println!("Event received from peer is {:?}", event);
             }
             _ => {}
         }
